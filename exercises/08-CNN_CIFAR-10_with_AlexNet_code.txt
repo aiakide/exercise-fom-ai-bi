@@ -1,0 +1,252 @@
+___
+import torch
+import torchvision
+import torchvision.transforms as transforms
+from torch.utils.data import random_split
+import matplotlib.pyplot as plt
+import numpy as np
+from torch.autograd import Variable
+
+# Transformationen für die Bilder
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+])
+
+# Trainingsdatensatz laden
+trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+
+# In Trainings- und Validierungssatz aufteilen (80% Training, 20% Validierung)
+train_size = int(0.8 * len(trainset))
+val_size = len(trainset) - train_size
+train_subset, val_subset = random_split(trainset, [train_size, val_size])
+
+trainloader = torch.utils.data.DataLoader(train_subset, batch_size=64, shuffle=True, num_workers=2)
+valloader = torch.utils.data.DataLoader(val_subset, batch_size=64, shuffle=False, num_workers=2)
+
+# Testdatensatz laden
+testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
+testloader = torch.utils.data.DataLoader(testset, batch_size=64, shuffle=False, num_workers=2)
+
+# Klassen
+classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+___
+
+import torch.nn as nn
+import torch.nn.functional as F
+
+class SimpleCNN(nn.Module):
+    def __init__(self):
+        super(SimpleCNN, self).__init__()
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.fc3 = nn.Linear(84, 10)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = x.view(-1, 16 * 5 * 5)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+# Modell initialisieren und auf GPU verschieben, falls verfügbar
+device = torch.device("cuda" if torch.cuda.is_available() else "mps")
+model = SimpleCNN().to(device)
+___
+
+import torch.optim as optim
+
+# Verlustfunktion und Optimizer
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+___
+
+# Trainingsschleife
+num_epochs = 10
+train_losses = []
+val_losses = []
+val_accuracies = []
+
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    for i, data in enumerate(trainloader, 0):
+        inputs, labels = data
+        inputs, labels = inputs.to(device), labels.to(device)
+
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+        running_loss += loss.item()
+
+    train_loss = running_loss / len(trainloader)
+    train_losses.append(train_loss)
+
+    model.eval()
+    val_loss = 0.0
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for data in valloader:
+            inputs, labels = data
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            val_loss += loss.item()
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    val_loss /= len(valloader)
+    val_losses.append(val_loss)
+    val_accuracy = correct / total
+    val_accuracies.append(val_accuracy)
+
+
+    print(f'Epoch {epoch+1}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Val Accuracy: {val_accuracy:.4f}')
+
+plot_losses(train_losses, val_losses)
+___
+
+model.eval()
+test_loss = 0.0
+correct = 0
+total = 0
+with torch.no_grad():
+    for data in testloader:
+        inputs, labels = data
+        inputs, labels = inputs.to(device), labels.to(device)
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        test_loss += loss.item()
+        _, predicted = torch.max(outputs.data, 1)
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
+test_loss /= len(testloader)
+accuracy = correct / total
+
+print(f'Test Loss: {val_loss:.4f}, Test Accuracy: {accuracy:.4f}')
+___
+class AlexNet(nn.Module):
+    def __init__(self, num_classes=10):
+        super().__init__()
+        self.features = nn.Sequential(
+            # Conv1: 3 input channels (RGB), 64 filters, kernel 3x3, stride 1, padding 1
+            nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # Output: 64x16x16
+
+            # Conv2: 64 input channels, 192 filters, kernel 3x3, padding 1
+            nn.Conv2d(64, 192, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # Output: 192x8x8
+
+            # Conv3: 192 input channels, 384 filters, kernel 3x3, padding 1
+            nn.Conv2d(192, 384, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+
+            # Conv4: 384 input channels, 256 filters, kernel 3x3, padding 1
+            nn.Conv2d(384, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+
+            # Conv5: 256 input channels, 256 filters, kernel 3x3, padding 1
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # Output: 256x4x4
+        )
+        self.classifier = nn.Sequential(
+            nn.Dropout(p=0.5),
+            nn.Linear(256 * 4 * 4, 1024),  # Angepasst an 4x4 Feature Maps
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.5),
+            nn.Linear(1024, 1024),
+            nn.ReLU(inplace=True),
+            nn.Linear(1024, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), 256 * 4 * 4)
+        x = self.classifier(x)
+        return x
+
+# Modell initialisieren und auf GPU verschieben
+alexnet = AlexNet().to(device)
+___
+# Optimizer für AlexNet
+optimizer_alexnet = optim.Adam(alexnet.parameters(), lr=0.001)
+
+# Trainingsschleife für AlexNet
+train_losses_alexnet = []
+val_losses_alexnet = []
+val_accuracies_alexnet = []
+
+for epoch in range(num_epochs):
+    alexnet.train()
+    running_loss = 0.0
+    for i, data in enumerate(trainloader, 0):
+        inputs, labels = data
+        inputs, labels = inputs.to(device), labels.to(device)
+
+        optimizer_alexnet.zero_grad()
+        outputs = alexnet(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer_alexnet.step()
+
+        running_loss += loss.item()
+
+    train_loss = running_loss / len(trainloader)
+    train_losses_alexnet.append(train_loss)
+
+    alexnet.eval()
+    val_loss = 0.0
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for data in valloader:
+            inputs, labels = data
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = alexnet(inputs)
+            loss = criterion(outputs, labels)
+            val_loss += loss.item()
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    val_loss /= len(valloader)
+    val_losses_alexnet.append(val_loss)
+    val_accuracy = correct / total
+
+    val_accuracies_alexnet.append(val_accuracy)
+
+
+    print(f'Epoch {epoch+1}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Val Accuracy: {val_accuracy:.4f}')
+
+plot_losses(train_losses_alexnet, val_losses_alexnet)
+___
+alexnet.eval()
+test_loss = 0.0
+correct = 0
+total = 0
+with torch.no_grad():
+    for data in testloader:
+        inputs, labels = data
+        inputs, labels = inputs.to(device), labels.to(device)
+        outputs = alexnet(inputs)
+        loss = criterion(outputs, labels)
+        test_loss += loss.item()
+        _, predicted = torch.max(outputs.data, 1)
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
+test_loss /= len(testloader)
+accuracy = correct / total
+
+print(f'Test Loss: {val_loss:.4f}, Test Accuracy: {accuracy:.4f}')
+___

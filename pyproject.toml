@@ -5,11 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "confusion-matrix>=0.1",
     "jupyter>=1.1.1",
     "matplotlib>=3.10.1",
     "pandas>=2.2.3",
     "scikit-learn>=1.6.1",
     "seaborn>=0.13.2",
     "torch>=2.7.0",
+    "torchvision>=0.22.0",
     "xgboost>=3.0.0",
 ]

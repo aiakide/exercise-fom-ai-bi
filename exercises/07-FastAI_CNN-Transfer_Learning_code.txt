@@ -1,0 +1,30 @@
+from fastai.vision.all import *
+
+data_path = untar_data(URLs.PETS,base="sample_data/oxford-iiit-pet")
+
+data_path.ls()
+
+files = get_image_files(data_path/"images")
+len(files)
+
+pattern = r'^(.*)_\d+.jpg'
+
+dls = ImageDataLoaders.from_name_re(path=data_path, fnames=files, pat=pattern, item_tfms=Resize(460),
+                                    batch_tfms=aug_transforms(size=224))
+
+dls.show_batch()
+
+learn = vision_learner(dls, resnet34, metrics=error_rate)
+
+learn.lr_find(suggest_funcs=(SuggestionMethod.Minimum,SuggestionMethod.Steep))
+
+learn.fine_tune(2, 35e-3)
+
+learn.show_results()
+
+interp = Interpretation.from_learner(learn)
+
+interp.plot_top_losses(12, figsize=(25,10))
+
+learn.export("/model.pkl")
+

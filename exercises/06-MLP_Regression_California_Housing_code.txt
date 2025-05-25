@@ -1,0 +1,134 @@
+___
+import torch
+from torch.utils.data import Dataset, DataLoader
+
+class HousingDataset(Dataset):
+    def __init__(self, X, y):
+        self.X = torch.tensor(X, dtype=torch.float32)
+        self.y = torch.tensor(y, dtype=torch.float32)  # Float für Regression
+
+    def __len__(self):
+        return len(self.y)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+# Datasets erstellen
+train_dataset = HousingDataset(X_train, y_train)
+val_dataset = HousingDataset(X_val, y_val)
+test_dataset = HousingDataset(X_test, y_test)
+___
+
+# Gerät bestimmen (GPU oder CPU)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Verwendetes Gerät: {device}")
+
+batch_size = 64
+
+# Dataloaders erstellen
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory= device != "cpu")
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, pin_memory= device != "cpu")
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, pin_memory= device != "cpu")
+___
+
+import torch.nn as nn
+import torch.nn.functional as F
+
+class MLP(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super(MLP, self).__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+# Parameter
+input_size = X_train.shape[1]  # Anzahl der Features
+hidden_size = 64
+output_size = 1  # Regression: ein kontinuierlicher Wert
+
+# Modell instanziieren und auf das Gerät verschieben
+model = MLP(input_size, hidden_size, output_size).to(device)
+___
+
+import torch.optim as optim
+
+# Loss-Funktion und Optimizer
+criterion = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=0.0015)
+
+# Trainingsparameter
+num_epochs = 30
+train_losses = []
+val_losses = []
+
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    for inputs, labels in train_loader:
+        inputs, labels = inputs.to(device), labels.to(device)
+
+        # Forward Pass
+        outputs = model(inputs).squeeze()
+        loss = criterion(outputs, labels)
+
+        # Backward Pass und Optimierung
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        running_loss += loss.item()
+
+    train_loss = running_loss / len(train_loader)
+    train_losses.append(train_loss)
+
+    # Validierung
+    model.eval()
+    val_loss = 0.0
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs).squeeze()
+            loss = criterion(outputs, labels)
+            val_loss += loss.item()
+
+    val_loss = val_loss / len(val_loader)
+    val_losses.append(val_loss)
+
+    print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+
+# Verluste plotten
+plot_losses(train_losses, val_losses, num_epochs)
+___
+
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+import numpy as np
+
+# Modell evaluieren
+model.eval()
+all_preds = []
+all_labels = []
+
+with torch.no_grad():
+    for inputs, labels in test_loader:
+        inputs, labels = inputs.to(device), labels.to(device)
+        outputs = model(inputs).squeeze()
+        all_preds.extend(outputs.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+
+# Zurückskalieren
+all_preds = scaler_y.inverse_transform(np.array(all_preds).reshape(-1, 1)).flatten()
+all_labels = scaler_y.inverse_transform(np.array(all_labels).reshape(-1, 1)).flatten()
+
+# Metriken berechnen
+mse = mean_squared_error(all_labels, all_preds)
+mae = mean_absolute_error(all_labels, all_preds)
+r2 = r2_score(all_labels, all_preds)
+
+print(f"Mean Squared Error (MSE): {mse:.4f}")
+print(f"Mean Absolute Error (MAE): {mae:.4f}")
+print(f"R² Score: {r2:.4f}")
+___

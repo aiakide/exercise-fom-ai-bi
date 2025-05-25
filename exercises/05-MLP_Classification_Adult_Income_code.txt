@@ -1,0 +1,139 @@
+___
+import torch
+from torch.utils.data import Dataset, DataLoader
+
+class AdultDataset(Dataset):
+    def __init__(self, X, y):
+        self.X = torch.tensor(X, dtype=torch.float32)
+        self.y = torch.tensor(y.values, dtype=torch.long)  # Annahme: y ist ein pandas Series
+
+    def __len__(self):
+        return len(self.y)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+# Datasets erstellen
+train_dataset = AdultDataset(X_train, y_train)
+val_dataset = AdultDataset(X_val, y_val)
+test_dataset = AdultDataset(X_test, y_test)
+
+___
+batch_size = 64
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+# Dataloaders mit pin_memory=True, wenn CUDA verfügbar ist
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=device != "cpu")
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, pin_memory=device != "cpu")
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, pin_memory=device != "cpu")
+
+___
+
+import torch.nn as nn
+import torch.nn.functional as F
+
+class MLP(nn.Module):
+    def __init__(self, input_size, hidden_size, num_classes):
+        super(MLP, self).__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(hidden_size, num_classes)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        return x
+
+# Parameter
+input_size = X_train.shape[1]  # Anzahl der Features
+hidden_size = 128
+num_classes = 2  # Binäre Klassifikation
+
+# Modell instanziieren
+model = MLP(input_size, hidden_size, num_classes)
+
+model = model.to(device)
+
+___
+import torch.optim as optim
+
+# Loss-Funktion und Optimizer
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.007)
+
+# Trainingsparameter
+num_epochs = 22
+train_losses = []
+val_losses = []
+
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    for inputs, labels in train_loader:
+        # Daten auf das Gerät verschieben
+        inputs, labels = inputs.to(device), labels.to(device)
+
+        # Forward Pass
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+
+        # Backward Pass und Optimierung
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        running_loss += loss.item()
+
+    # Durchschnittlichen Trainingsverlust speichern
+    train_loss = running_loss / len(train_loader)
+    train_losses.append(train_loss)
+
+    # Validierung
+    model.eval()
+    val_loss = 0.0
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            val_loss += loss.item()
+
+    # Durchschnittlichen Validierungsverlust speichern
+    val_loss = val_loss / len(val_loader)
+    val_losses.append(val_loss)
+
+    print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+
+# Verluste plotten
+plot_losses(train_losses, val_losses, num_epochs)
+
+___
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+import numpy as np
+
+# Modell auf Testdatensatz evaluieren
+model.eval()
+all_preds = []
+all_labels = []
+
+with torch.no_grad():
+    for inputs, labels in test_loader:
+        inputs, labels = inputs.to(device), labels.to(device)
+        outputs = model(inputs)
+        _, preds = torch.max(outputs, 1)
+        all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+
+# Metriken berechnen
+accuracy = accuracy_score(all_labels, all_preds)
+precision = precision_score(all_labels, all_preds)
+recall = recall_score(all_labels, all_preds)
+f1 = f1_score(all_labels, all_preds)
+
+print(f"Accuracy: {accuracy:.4f}")
+print(f"Precision: {precision:.4f}")
+print(f"Recall: {recall:.4f}")
+print(f"F1-Score: {f1:.4f}")
+
+___
